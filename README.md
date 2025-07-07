@@ -7,26 +7,26 @@ A high-performance Figma plugin that converts text data (CSV, TSV, Markdown tabl
 
 ## Table of Contents
 
-- [✨ Key Features](#-key-features)
-- [🚀 Getting Started](#-getting-started)
-- [Usage](#usage)
-- [Supported Formats](#supported-formats)
-- [🛠️ For Developers](#️-for-developers)
-- [🐛 Troubleshooting](#-troubleshooting)
-- [📝 License](#-license)
-- [🔗 Resources](#-resources)
+1. [Text to Table - Figma Plugin](#text-to-table---figma-plugin)
+    1. [Table of Contents](#table-of-contents)
+    2. [✨ Key Features](#-key-features)
+    3. [🚀 Getting Started](#-getting-started)
+        1. [Prerequisites](#prerequisites)
+        2. [Installation](#installation)
+    4. [Usage](#usage)
+    5. [Supported Formats](#supported-formats)
+    6. [🛠️ For Developers](#️-for-developers)
+        1. [Development Mode](#development-mode)
+        2. [Code Quality](#code-quality)
+        3. [Contributing](#contributing)
+    7. [📝 License](#-license)
+    8. [🔗 Resources](#-resources)
 
 ## ✨ Key Features
 
-- **Multiple Format Support**: Seamlessly convert CSV, TSV, and Markdown table data.
-- **High Performance**: Optimized for large datasets with progressive rendering and dynamic batch sizing. Handles tables with 1000+ cells in seconds.
-- **Smart Styling**:
-    - Columns automatically adjust to content width.
-    - Professional typography using system fonts with fallbacks (Inter → Roboto → Arial).
-    - Consistent padding and margins for excellent readability.
-- **Real-time Preview**: See a live preview of your table before creating it in Figma.
-- **File Upload**: Easily upload `.csv`, `.tsv`, `.md`, or `.txt` files.
-- **Clear Error Handling**: Get straightforward validation and error messages to quickly fix data formatting issues.
+- Generate tables in Figma by inputting CSV/TSV/Markdown text data into a form
+- Supports multiple file uploads (.csv, .tsv, .md, .txt)
+- Edit created tables using the selection tool
 
 ## 🚀 Getting Started
 
@@ -39,17 +39,20 @@ A high-performance Figma plugin that converts text data (CSV, TSV, Markdown tabl
 ### Installation
 
 1.  **Clone the repository:**
+
     ```sh
     git clone https://github.com/your-username/text-to-table.git
     cd text-to-table
     ```
 
 2.  **Install dependencies:**
+
     ```sh
     pnpm install
     ```
 
 3.  **Build the plugin:**
+
     ```sh
     pnpm build
     ```
@@ -75,6 +78,7 @@ A high-performance Figma plugin that converts text data (CSV, TSV, Markdown tabl
 The plugin supports the following plain text formats.
 
 > **CSV (Comma-Separated Values)**
+>
 > ```csv
 > Name,Age,City
 > John,25,Tokyo
@@ -82,6 +86,7 @@ The plugin supports the following plain text formats.
 > ```
 
 > **TSV (Tab-Separated Values)**
+>
 > ```tsv
 > Name	Age	City
 > John	25	Tokyo
@@ -89,9 +94,10 @@ The plugin supports the following plain text formats.
 > ```
 
 > **Markdown Tables**
+>
 > ```markdown
-> | Name | Age | City |
-> |------|-----|------|
+> | Name | Age | City  |
+> | ---- | --- | ----- |
 > | John | 25  | Tokyo |
 > | Jane | 30  | Osaka |
 > ```
@@ -101,14 +107,17 @@ The plugin supports the following plain text formats.
 ### Development Mode
 
 To watch for file changes and enable hot reloading in Figma:
+
 ```sh
 pnpm dev
 ```
+
 The development server will start at `http://localhost:5173`.
 
 ### Code Quality
 
 Run linting and formatting checks to maintain code consistency.
+
 ```sh
 # Run linting
 pnpm lint
@@ -120,18 +129,6 @@ pnpm lint:fix
 pnpm format
 ```
 
-### Project Structure
-```
-src/
-├── app/            # React UI components
-├── components/     # Reusable UI components
-├── figma/          # Figma API integration & plugin logic
-├── parsers/        # Data format parsing logic
-├── plugin/         # Plugin message handling
-├── types/          # TypeScript type definitions
-└── ui/             # UI-specific components
-```
-
 ### Contributing
 
 Contributions are welcome!
@@ -141,12 +138,6 @@ Contributions are welcome!
 3.  Make your changes.
 4.  Ensure all checks pass: `pnpm lint && pnpm build`
 5.  Submit a pull request.
-
-## 🐛 Troubleshooting
-
-- **"Invalid format" error**: Ensure your data format matches the selected type.
-- **Plugin not loading**: Make sure you have run the build command (`pnpm build`).
-- **Performance issues**: For very large tables (>2000 cells), consider splitting them into smaller chunks.
 
 ## 📝 License
 
