@@ -24,9 +24,11 @@ A high-performance Figma plugin that converts text data (CSV, TSV, Markdown tabl
 
 ## ✨ Key Features
 
-- Generate tables in Figma by inputting CSV/TSV/Markdown text data into a form
-- Supports multiple file uploads (.csv, .tsv, .md, .txt)
-- Edit created tables using the selection tool
+- **Smart Markdown Processing**: Automatically detects and extracts table content from mixed markdown text
+- **Text Formatting Support**: Preserves **bold** and _italic_ formatting from markdown text
+- **Multiple Format Support**: Generate tables from CSV, TSV, and Markdown data
+- **File Upload Support**: Drag and drop files (.csv, .tsv, .md, .txt) or paste data manually
+- **Table Editing**: Edit created tables using Figma's selection tool
 
 ## 🚀 Getting Started
 
@@ -96,11 +98,31 @@ The plugin supports the following plain text formats.
 > **Markdown Tables**
 >
 > ```markdown
-> | Name | Age | City  |
-> | ---- | --- | ----- |
-> | John | 25  | Tokyo |
-> | Jane | 30  | Osaka |
+> | Name     | Age | City  |
+> | -------- | --- | ----- |
+> | **John** | 25  | Tokyo |
+> | _Jane_   | 30  | Osaka |
 > ```
+>
+> **Enhanced Markdown Features:**
+>
+> - Automatically extracts table data from mixed markdown content
+> - Supports **bold** text formatting (`**text**` or `__text__`)
+> - Supports _italic_ text formatting (`*text*` or `_text_`)
+> - Mixed content example:
+>
+>     ```markdown
+>     # Some Document
+>
+>     Here's some text before the table.
+>
+>     | Product | **Price** | _Category_    |
+>     | ------- | --------- | ------------- |
+>     | Laptop  | **$1200** | _Electronics_ |
+>     | Book    | $20       | Education     |
+>
+>     Text after the table is ignored.
+>     ```
 
 ## 🛠️ For Developers
 

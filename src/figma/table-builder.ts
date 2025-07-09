@@ -1,4 +1,4 @@
-import type { ColumnAlignment } from '../parsers/markdown-parser';
+import type { CellFormat, ColumnAlignment } from '../parsers/markdown-parser';
 import { FontManager } from './font-manager';
 
 export interface TableConfig {
@@ -57,6 +57,7 @@ export class FigmaTableBuilder {
     async buildTable(
         data: string[][],
         options: Partial<TableBuildOptions> = {},
+        cellFormats?: CellFormat[][],
     ): Promise<FrameNode> {
         // Determine progressive rendering based on cell count (more practical)
         const totalCells = data.length * (data[0]?.length || 1);
@@ -72,11 +73,11 @@ export class FigmaTableBuilder {
 
         // Use progressive rendering for large tables
         if (shouldUseProgressive) {
-            return this.buildTableProgressive(data, options);
+            return this.buildTableProgressive(data, options, cellFormats);
         }
 
         // Normal batch processing
-        return this.buildTableBatch(data, options);
+        return this.buildTableBatch(data, options, cellFormats);
     }
 
     /**
@@ -85,6 +86,7 @@ export class FigmaTableBuilder {
     private async buildTableProgressive(
         data: string[][],
         options: Partial<TableBuildOptions> = {},
+        cellFormats?: CellFormat[][],
     ): Promise<FrameNode> {
         const { alignments, hasHeader = false } = options;
         const config = { ...this.config, ...options.config };
@@ -135,7 +137,15 @@ export class FigmaTableBuilder {
             const rowPromises = batchData.map(async (rowData, index) => {
                 const actualRowIndex = batchStart + index;
                 const isHeaderRow = hasHeader && actualRowIndex === 0;
-                return this.createRow(rowData, actualRowIndex, isHeaderRow, alignments, config);
+                const rowFormats = cellFormats?.[actualRowIndex];
+                return this.createRow(
+                    rowData,
+                    actualRowIndex,
+                    isHeaderRow,
+                    alignments,
+                    config,
+                    rowFormats,
+                );
             });
 
             const batchRows = await Promise.all(rowPromises);
@@ -168,6 +178,7 @@ export class FigmaTableBuilder {
     private async buildTableBatch(
         data: string[][],
         options: Partial<TableBuildOptions> = {},
+        cellFormats?: CellFormat[][],
     ): Promise<FrameNode> {
         const { alignments, hasHeader = false } = options;
         const config = { ...this.config, ...options.config };
@@ -186,7 +197,8 @@ export class FigmaTableBuilder {
         // Batch processing: create all rows in parallel
         const rowCreationPromises = data.map(async (rowData, rowIndex) => {
             const isHeaderRow = hasHeader && rowIndex === 0;
-            return this.createRow(rowData, rowIndex, isHeaderRow, alignments, config);
+            const rowFormats = cellFormats?.[rowIndex];
+            return this.createRow(rowData, rowIndex, isHeaderRow, alignments, config, rowFormats);
         });
 
         // Create all rows in parallel
@@ -242,6 +254,7 @@ export class FigmaTableBuilder {
         isHeader: boolean,
         alignments?: ColumnAlignment[],
         config: TableConfig = this.config,
+        rowFormats?: CellFormat[],
     ): Promise<FrameNode> {
         const rowFrame = figma.createFrame();
         rowFrame.name = `Row ${rowIndex + 1}${isHeader ? ' (Header)' : ''}`;
@@ -256,7 +269,16 @@ export class FigmaTableBuilder {
         // Batch process: create cells in parallel
         const cellCreationPromises = rowData.map(async (cellText, cellIndex) => {
             const alignment = alignments?.[cellIndex] || 'left';
-            return this.createCell(cellText, cellIndex, rowIndex, isHeader, alignment, config);
+            const cellFormat = rowFormats?.[cellIndex];
+            return this.createCell(
+                cellText,
+                cellIndex,
+                rowIndex,
+                isHeader,
+                alignment,
+                config,
+                cellFormat,
+            );
         });
 
         // Create all cells in parallel
@@ -287,6 +309,7 @@ export class FigmaTableBuilder {
         isHeader: boolean,
         alignment: ColumnAlignment,
         config: TableConfig,
+        cellFormat?: CellFormat,
     ): Promise<FrameNode> {
         const cellFrame = figma.createFrame();
         cellFrame.name = `Cell ${rowIndex + 1}-${cellIndex + 1}`;
@@ -329,7 +352,7 @@ export class FigmaTableBuilder {
 
         // Create text node
         if (text.trim()) {
-            const textNode = await this.createTextNode(text, isHeader, config);
+            const textNode = await this.createTextNode(text, isHeader, config, cellFormat);
             cellFrame.appendChild(textNode);
 
             // Set layoutSizing after adding as Auto Layout child element
@@ -347,11 +370,13 @@ export class FigmaTableBuilder {
         text: string,
         isHeader: boolean,
         config: TableConfig,
+        cellFormat?: CellFormat,
     ): Promise<TextNode> {
         const textNode = figma.createText();
 
-        // Use FontManager to get the best available font
-        const bestFont = FontManager.getBestAvailableFont(config.fontFamily, isHeader);
+        // Use FontManager to get the best available font based on formatting
+        const isBold = cellFormat?.isBold || false;
+        const bestFont = FontManager.getBestAvailableFont(config.fontFamily, isHeader, isBold);
 
         try {
             // Ensure the font is loaded (should be already loaded via FontManager)

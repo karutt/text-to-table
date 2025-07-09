@@ -3,14 +3,23 @@ import { ERROR_CODES } from '../types';
 
 export type ColumnAlignment = 'left' | 'center' | 'right';
 
+export interface CellFormat {
+    text: string;
+    isBold?: boolean;
+    isItalic?: boolean;
+}
+
 export interface MarkdownParseResult extends ParseResult {
     alignments?: ColumnAlignment[];
+    cellFormats?: CellFormat[][];
 }
 
 /**
- * Markdown table parser
- * Parse Markdown table and convert to Table structure
- * Supports alignment syntax (:---, :---:, ---:)
+ * Markdown table parser with enhanced features
+ * - Auto table detection from mixed content
+ * - Bold/italic text formatting support
+ * - Parse Markdown table and convert to Table structure
+ * - Supports alignment syntax (:---, :---:, ---:)
  */
 export class MarkdownParser implements DataParser {
     parse(text: string, options: ParseOptions = {}): MarkdownParseResult {
@@ -25,11 +34,15 @@ export class MarkdownParser implements DataParser {
             };
         }
 
-        const lines = text
+        // Extract table content from mixed markdown text
+        const tableText = this.extractTableFromText(text);
+
+        const lines = tableText
             .split('\n')
             .map(line => line.trim())
             .filter(Boolean);
         const data: string[][] = [];
+        const cellFormats: CellFormat[][] = [];
         const errors: ParseError[] = [];
         let alignments: ColumnAlignment[] = [];
         let separatorLineIndex = -1;
@@ -56,7 +69,7 @@ export class MarkdownParser implements DataParser {
             }
 
             try {
-                const row = this.parseTableRow(line, trimWhitespace);
+                const { row, formats } = this.parseTableRowWithFormatting(line, trimWhitespace);
 
                 if (row.length > maxColumns) {
                     errors.push({
@@ -68,6 +81,7 @@ export class MarkdownParser implements DataParser {
                 }
 
                 data.push(row);
+                cellFormats.push(formats);
             } catch (error) {
                 errors.push({
                     line: i + 1,
@@ -91,12 +105,42 @@ export class MarkdownParser implements DataParser {
             hasHeader: hasHeader && separatorLineIndex >= 0,
             errors,
             alignments,
+            cellFormats,
             metadata: {
                 rowCount: data.length,
                 columnCount: data[0]?.length || 0,
                 format: 'markdown',
             },
         };
+    }
+
+    /**
+     * Extract table content from mixed markdown text
+     * Automatically detects and extracts table sections
+     */
+    private extractTableFromText(text: string): string {
+        const lines = text.split('\n');
+        const tableLines: string[] = [];
+        let inTable = false;
+
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+
+            if (this.isTableRow(trimmedLine) || this.isSeparatorLine(trimmedLine)) {
+                if (!inTable) {
+                    inTable = true;
+                }
+                tableLines.push(line);
+            } else if (inTable && trimmedLine === '') {
+                // Empty line might be part of table formatting
+                tableLines.push(line);
+            } else if (inTable) {
+                // Non-table line encountered, end table extraction
+                break;
+            }
+        }
+
+        return tableLines.join('\n');
     }
 
     validate(text: string): boolean {
@@ -156,15 +200,19 @@ export class MarkdownParser implements DataParser {
     }
 
     /**
-     * Parse table rows and split into individual cells
+     * Parse table rows with formatting support (bold, italic)
      */
-    private parseTableRow(line: string, trimWhitespace: boolean): string[] {
+    private parseTableRowWithFormatting(
+        line: string,
+        trimWhitespace: boolean,
+    ): { row: string[]; formats: CellFormat[] } {
         const trimmed = line.trim();
 
         // Remove leading and trailing pipe characters
         const content = trimmed.slice(1, -1);
 
-        const cells: string[] = [];
+        const row: string[] = [];
+        const formats: CellFormat[] = [];
         let current = '';
         let i = 0;
 
@@ -174,7 +222,9 @@ export class MarkdownParser implements DataParser {
             if (char === '|') {
                 // Cell delimiter
                 const cellContent = trimWhitespace ? current.trim() : current;
-                cells.push(this.unescapeMarkdown(cellContent));
+                const { text, format } = this.parseTextFormatting(cellContent);
+                row.push(text);
+                formats.push(format);
                 current = '';
             } else if (char === '\\' && i + 1 < content.length) {
                 // Process escape characters
@@ -186,8 +236,7 @@ export class MarkdownParser implements DataParser {
                 } else {
                     current += char;
                 }
-            }
-            else {
+            } else {
                 current += char;
             }
 
@@ -196,9 +245,53 @@ export class MarkdownParser implements DataParser {
 
         // Last cell
         const cellContent = trimWhitespace ? current.trim() : current;
-        cells.push(this.unescapeMarkdown(cellContent));
+        const { text, format } = this.parseTextFormatting(cellContent);
+        row.push(text);
+        formats.push(format);
 
-        return cells;
+        return { row, formats };
+    }
+
+    /**
+     * Parse text formatting (bold, italic) from markdown
+     */
+    private parseTextFormatting(text: string): { text: string; format: CellFormat } {
+        const unescapedText = this.unescapeMarkdown(text);
+
+        // Check for bold formatting (**text** or __text__)
+        const boldMatch =
+            unescapedText.match(/^\*\*(.*)\*\*$/) || unescapedText.match(/^__(.*__)$/);
+        if (boldMatch) {
+            return {
+                text: boldMatch[1],
+                format: { text: boldMatch[1], isBold: true },
+            };
+        }
+
+        // Check for italic formatting (*text* or _text_)
+        const italicMatch = unescapedText.match(/^\*(.*)\*$/) || unescapedText.match(/^_(.*_)$/);
+        if (italicMatch) {
+            return {
+                text: italicMatch[1],
+                format: { text: italicMatch[1], isItalic: true },
+            };
+        }
+
+        // Check for bold + italic (***text*** or ___text___)
+        const boldItalicMatch =
+            unescapedText.match(/^\*\*\*(.*)\*\*\*$/) || unescapedText.match(/^___(.*___)$/);
+        if (boldItalicMatch) {
+            return {
+                text: boldItalicMatch[1],
+                format: { text: boldItalicMatch[1], isBold: true, isItalic: true },
+            };
+        }
+
+        // No formatting
+        return {
+            text: unescapedText,
+            format: { text: unescapedText },
+        };
     }
 
     /**
@@ -208,4 +301,3 @@ export class MarkdownParser implements DataParser {
         return text.replace(/\\\|/g, '|').replace(/\\\\/g, '\\');
     }
 }
-

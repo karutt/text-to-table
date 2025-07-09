@@ -178,9 +178,13 @@ export class TableController {
                 this.tableBuilder.updateConfig(tableConfig);
             }
 
-            // Get alignment information for Markdown
+            // Get alignment and cell format information for Markdown
             const alignments =
                 format === 'markdown' ? (parseResult as MarkdownParseResult).alignments : undefined;
+            const cellFormats =
+                format === 'markdown'
+                    ? (parseResult as MarkdownParseResult).cellFormats
+                    : undefined;
 
             // Enable progressive rendering for large tables
             const dataSize = parseResult.data.length;
@@ -203,13 +207,17 @@ export class TableController {
             }
 
             // Build table
-            const tableNode = await this.tableBuilder.buildTable(parseResult.data, {
-                config: this.tableBuilder.getConfig(),
-                alignments,
-                hasHeader: parseResult.hasHeader,
-                progressiveRendering,
-                batchSize,
-            });
+            const tableNode = await this.tableBuilder.buildTable(
+                parseResult.data,
+                {
+                    config: this.tableBuilder.getConfig(),
+                    alignments,
+                    hasHeader: parseResult.hasHeader,
+                    progressiveRendering,
+                    batchSize,
+                },
+                cellFormats,
+            );
 
             // Save plugin data to make table identifiable
             const tableMetadata = {

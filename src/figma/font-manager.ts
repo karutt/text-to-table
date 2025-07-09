@@ -136,8 +136,12 @@ export class FontManager {
      * Get the best available font for text rendering
      * Returns a loaded font that can be used immediately
      */
-    static getBestAvailableFont(preferredFamily: string, isHeader: boolean): FontName {
-        const preferredStyle = isHeader ? 'Bold' : 'Regular';
+    static getBestAvailableFont(
+        preferredFamily: string,
+        isHeader: boolean,
+        isBold?: boolean,
+    ): FontName {
+        const preferredStyle = isHeader || isBold ? 'Bold' : 'Regular';
 
         // Try preferred font first
         const preferredFont = { family: preferredFamily, style: preferredStyle };
