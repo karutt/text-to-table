@@ -145,6 +145,49 @@ export class TableController {
     }
 
     /**
+     * Check if appending a node would create a parenting cycle
+     * Prevents circular references in Figma node hierarchy
+     */
+    private wouldCreateParentingCycle(child: BaseNode, potentialParent: BaseNode): boolean {
+        // If child is already a parent/ancestor of potentialParent, it would create a cycle
+        let currentNode: BaseNode | null = potentialParent;
+
+        while (currentNode && currentNode.type !== 'PAGE') {
+            if (currentNode === child) {
+                return true; // Cycle detected
+            }
+            currentNode = currentNode.parent;
+        }
+
+        return false;
+    }
+
+    /**
+     * Safely place container with fallback logic
+     */
+    private fallbackContainerPlacement(containerNode: FrameNode, selectedNode: BaseNode): void {
+        if (containerNode.removed) {
+            throw new Error('Container node has been removed');
+        }
+
+        // Place next to selected node as fallback (if it has position properties)
+        if ('x' in selectedNode && 'y' in selectedNode && 'width' in selectedNode) {
+            containerNode.x = selectedNode.x + selectedNode.width + 20;
+            containerNode.y = selectedNode.y;
+        } else {
+            // Use viewport center as final fallback
+            const viewport = figma.viewport.center;
+            containerNode.x = viewport.x;
+            containerNode.y = viewport.y;
+        }
+
+        // Only add to page if no parent
+        if (!containerNode.parent) {
+            figma.currentPage.appendChild(containerNode);
+        }
+    }
+
+    /**
      * Create table from text (optimized version)
      */
     async createTable(request: CreateTableRequest): Promise<CreateTableResponse> {
@@ -186,22 +229,6 @@ export class TableController {
                 format === 'markdown'
                     ? (parseResult as MarkdownParseResult).cellFormats
                     : undefined;
-
-            // Debug log for cellFormats
-            if (cellFormats) {
-                console.log('📋 Cell formats from parser:', {
-                    totalRows: cellFormats.length,
-                    sample: cellFormats.slice(0, 3).map((row, rowIndex) => ({
-                        row: rowIndex,
-                        cells: row.map((cell, cellIndex) => ({
-                            cell: cellIndex,
-                            text: cell.text,
-                            isLink: cell.isLink,
-                            linkUrl: cell.linkUrl,
-                        })),
-                    })),
-                });
-            }
 
             // Enable progressive rendering for large tables
             const dataSize = parseResult.data.length;
@@ -470,6 +497,15 @@ export class TableController {
                 this.tableBuilder.updateConfig(tableConfig);
             }
 
+            // ⚠️ IMPORTANT: Capture selection state BEFORE creating container
+            // Container creation automatically changes Figma's selection state
+            const originalSelection = figma.currentPage.selection.slice();
+            const selectionSnapshot = {
+                length: originalSelection.length,
+                firstNode: originalSelection[0] || null,
+                nodeType: originalSelection[0]?.type || null,
+            };
+
             // Create container for multiple tables
             const containerNode = figma.createFrame();
             containerNode.name = 'Tables Container';
@@ -505,6 +541,7 @@ export class TableController {
                         parseOptions: tableData.parseOptions,
                         tableConfig,
                         filename: tableData.filename,
+                        position: { x: 0, y: 0 }, // Specify dummy position to prevent auto-positioning
                     });
 
                     if (response.success && response.tableNode) {
@@ -524,42 +561,86 @@ export class TableController {
 
             // If at least one table was created
             if (tableNodes.length > 0) {
-                // Set container position
+                // Set position (using the same logic as single table)
+                if (containerNode.removed) {
+                    throw new Error('Container node was removed before it could be positioned');
+                }
+
                 if (position) {
                     containerNode.x = position.x;
                     containerNode.y = position.y;
                 } else {
-                    // Calculate optimal position based on selection state
-                    const optimalPlacement = this.calculateOptimalPosition();
+                    // Use original selection state (before container creation) to determine position
+                    if (selectionSnapshot.length > 0 && selectionSnapshot.firstNode) {
+                        const selectedNode = selectionSnapshot.firstNode;
 
-                    if (optimalPlacement.isInsideContainer && optimalPlacement.parent) {
-                        // Try to place in container
-                        try {
-                            containerNode.x = optimalPlacement.x;
-                            containerNode.y = optimalPlacement.y;
-                            optimalPlacement.parent.appendChild(containerNode);
-                        } catch {
-                            // If failed, place next to it
-                            const selectedNode = figma.currentPage.selection[0];
-                            containerNode.x = selectedNode.x + selectedNode.width + 20;
-                            containerNode.y = selectedNode.y;
-                            figma.currentPage.appendChild(containerNode);
+                        // Check if original selected node is a container that can have children
+                        if (this.canHaveChildren(selectedNode)) {
+                            // Check for potential parenting cycle before attempting appendChild
+                            const wouldCreateCycle = this.wouldCreateParentingCycle(
+                                containerNode,
+                                selectedNode,
+                            );
+
+                            if (!wouldCreateCycle) {
+                                try {
+                                    if (containerNode.removed) {
+                                        throw new Error('Container node has been removed');
+                                    }
+
+                                    containerNode.x = 20; // Add some margin
+                                    containerNode.y = 20;
+
+                                    // Directly appendChild to original selected parent
+                                    (selectedNode as BaseNode & ChildrenMixin).appendChild(
+                                        containerNode,
+                                    );
+                                } catch {
+                                    // Failed to append container to selected node, use fallback placement
+                                    this.fallbackContainerPlacement(containerNode, selectedNode);
+                                }
+                            } else {
+                                this.fallbackContainerPlacement(containerNode, selectedNode);
+                            }
+                        } else {
+                            // Original selected node can't have children, place next to it
+                            if (containerNode.removed) {
+                                throw new Error('Container node has been removed');
+                            }
+
+                            if (
+                                'x' in selectedNode &&
+                                'y' in selectedNode &&
+                                'width' in selectedNode
+                            ) {
+                                containerNode.x = selectedNode.x + selectedNode.width + 20;
+                                containerNode.y = selectedNode.y;
+                            } else {
+                                // Fallback to viewport center
+                                const viewport = figma.viewport.center;
+                                containerNode.x = viewport.x;
+                                containerNode.y = viewport.y;
+                            }
                         }
-                    } else if (figma.currentPage.selection.length === 0) {
-                        // Place at viewport center
-                        containerNode.x = optimalPlacement.x - containerNode.width / 2;
-                        containerNode.y = optimalPlacement.y - containerNode.height / 2;
-                        figma.currentPage.appendChild(containerNode);
                     } else {
-                        // Place next to selected node
-                        containerNode.x = optimalPlacement.x;
-                        containerNode.y = optimalPlacement.y;
-                        figma.currentPage.appendChild(containerNode);
+                        // Nothing was originally selected, place at viewport center
+                        if (containerNode.removed) {
+                            throw new Error('Container node has been removed');
+                        }
+
+                        const viewport = figma.viewport.center;
+                        containerNode.x = viewport.x - containerNode.width / 2;
+                        containerNode.y = viewport.y - containerNode.height / 2;
                     }
                 }
 
-                // Add container to page if it doesn't have a parent
+                // Add to current page (only if not already added to container)
                 if (!containerNode.parent) {
+                    if (containerNode.removed) {
+                        throw new Error(
+                            'Container node was removed before it could be added to the page',
+                        );
+                    }
                     figma.currentPage.appendChild(containerNode);
                 }
 
@@ -1162,6 +1243,15 @@ export class TableController {
                 this.tableBuilder.updateConfig(tableConfig);
             }
 
+            // ⚠️ IMPORTANT: Capture selection state BEFORE creating container
+            // Container creation automatically changes Figma's selection state
+            const originalSelection = figma.currentPage.selection.slice();
+            const selectionSnapshot = {
+                length: originalSelection.length,
+                firstNode: originalSelection[0] || null,
+                nodeType: originalSelection[0]?.type || null,
+            };
+
             // Create container for multiple tables
             const containerNode = figma.createFrame();
             containerNode.name = 'Markdown Tables';
@@ -1228,18 +1318,87 @@ export class TableController {
 
             // If at least one table was created
             if (tableNodes.length > 0) {
-                // Set container position
+                // Set position (using the same logic as single table)
+                if (containerNode.removed) {
+                    throw new Error('Container node was removed before it could be positioned');
+                }
+
                 if (position) {
                     containerNode.x = position.x;
                     containerNode.y = position.y;
                 } else {
-                    const optimalPlacement = this.calculateOptimalPosition();
-                    containerNode.x = optimalPlacement.x;
-                    containerNode.y = optimalPlacement.y;
+                    // Use original selection state (before container creation) to determine position
+                    if (selectionSnapshot.length > 0 && selectionSnapshot.firstNode) {
+                        const selectedNode = selectionSnapshot.firstNode;
+
+                        // Check if original selected node is a container that can have children
+                        if (this.canHaveChildren(selectedNode)) {
+                            // Check for potential parenting cycle
+                            const wouldCreateCycle = this.wouldCreateParentingCycle(
+                                containerNode,
+                                selectedNode,
+                            );
+
+                            if (!wouldCreateCycle) {
+                                try {
+                                    if (containerNode.removed) {
+                                        throw new Error('Container node has been removed');
+                                    }
+
+                                    containerNode.x = 20;
+                                    containerNode.y = 20;
+
+                                    // Directly appendChild to original selected parent
+                                    (selectedNode as BaseNode & ChildrenMixin).appendChild(
+                                        containerNode,
+                                    );
+                                } catch {
+                                    // Failed to append container to selected node, use fallback placement
+                                    this.fallbackContainerPlacement(containerNode, selectedNode);
+                                }
+                            } else {
+                                this.fallbackContainerPlacement(containerNode, selectedNode);
+                            }
+                        } else {
+                            // Original selected node can't have children, place next to it
+                            if (containerNode.removed) {
+                                throw new Error('Container node has been removed');
+                            }
+
+                            if (
+                                'x' in selectedNode &&
+                                'y' in selectedNode &&
+                                'width' in selectedNode
+                            ) {
+                                containerNode.x = selectedNode.x + selectedNode.width + 20;
+                                containerNode.y = selectedNode.y;
+                            } else {
+                                const viewport = figma.viewport.center;
+                                containerNode.x = viewport.x;
+                                containerNode.y = viewport.y;
+                            }
+                        }
+                    } else {
+                        // Nothing was originally selected, place at viewport center
+                        if (containerNode.removed) {
+                            throw new Error('Container node has been removed');
+                        }
+
+                        const viewport = figma.viewport.center;
+                        containerNode.x = viewport.x - containerNode.width / 2;
+                        containerNode.y = viewport.y - containerNode.height / 2;
+                    }
                 }
 
-                // Add container to page
-                figma.currentPage.appendChild(containerNode);
+                // Add to current page (only if not already added to container)
+                if (!containerNode.parent) {
+                    if (containerNode.removed) {
+                        throw new Error(
+                            'Container node was removed before it could be added to the page',
+                        );
+                    }
+                    figma.currentPage.appendChild(containerNode);
+                }
 
                 // Select container without changing viewport
                 figma.currentPage.selection = [containerNode];

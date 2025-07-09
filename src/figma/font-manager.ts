@@ -14,11 +14,8 @@ export class FontManager {
      */
     static async initialize(config?: TableConfig): Promise<void> {
         if (this.isInitialized) {
-            console.log('FontManager already initialized');
             return;
         }
-
-        console.log('🔤 Initializing FontManager...');
 
         try {
             // Preload common fonts based on config or defaults
@@ -26,7 +23,6 @@ export class FontManager {
             await this.preloadCommonFonts(fontFamily);
 
             this.isInitialized = true;
-            console.log('✅ FontManager initialized successfully');
         } catch (error) {
             console.error('❌ FontManager initialization failed:', error);
             // Don't throw - allow plugin to continue with basic functionality
@@ -64,37 +60,22 @@ export class FontManager {
             addFont('Inter', 'Bold', 4);
         }
 
-        console.log(
-            'Loading fonts in parallel:',
-            fontsToLoad.map(f => `${f.family} ${f.style}`),
-        );
-
         // Load fonts in parallel
         const fontPromises = fontsToLoad.map(async fontInfo => {
-            const { family, style, priority } = fontInfo;
+            const { family, style } = fontInfo;
             const fontKey = `${family}_${style}`;
 
             try {
                 await figma.loadFontAsync({ family, style });
                 this.loadedFonts.add(fontKey);
-                console.log(`✓ Font loaded: ${family} ${style} (priority: ${priority})`);
                 return { fontInfo, success: true };
-            } catch (error) {
-                console.warn(`✗ Font failed: ${family} ${style} (priority: ${priority})`, error);
-                return { fontInfo, success: false, error };
+            } catch {
+                return { fontInfo, success: false };
             }
         });
 
         // Execute all font loading in parallel
-        const results = await Promise.allSettled(fontPromises);
-
-        // Log results
-        const successCount = results.filter(
-            result => result.status === 'fulfilled' && result.value.success,
-        ).length;
-        const failedCount = results.length - successCount;
-
-        console.log(`Font loading complete: ${successCount} succeeded, ${failedCount} failed`);
+        await Promise.allSettled(fontPromises);
 
         // Validate critical fonts
         this.validateCriticalFonts(fontFamily);
@@ -116,10 +97,8 @@ export class FontManager {
         try {
             await figma.loadFontAsync(fontName);
             this.loadedFonts.add(fontKey);
-            console.log(`✓ Font loaded on demand: ${fontName.family} ${fontName.style}`);
             return true;
-        } catch (error) {
-            console.warn(`✗ Failed to load font: ${fontName.family} ${fontName.style}`, error);
+        } catch {
             return false;
         }
     }
@@ -167,7 +146,6 @@ export class FontManager {
         }
 
         // Final fallback - return something that should work
-        console.warn('No loaded fonts found, using fallback');
         return { family: 'Inter', style: 'Regular' };
     }
 
@@ -175,22 +153,10 @@ export class FontManager {
      * Validate that critical fonts are available
      */
     private static validateCriticalFonts(fontFamily: string): void {
-        const hasMainFont = this.isFontLoaded({ family: fontFamily, style: 'Regular' });
-
-        if (!hasMainFont) {
-            if (fontFamily === 'Inter') {
-                console.warn('⚠️ Inter Regular font not available, using system default');
-            } else {
-                // Check if Inter fallback is available
-                const hasInterFallback = this.isFontLoaded({ family: 'Inter', style: 'Regular' });
-                if (hasInterFallback) {
-                    console.warn(`⚠️ Main font ${fontFamily} not available, falling back to Inter`);
-                } else {
-                    console.warn(
-                        `⚠️ Main font ${fontFamily} and Inter fallback not available, using system default`,
-                    );
-                }
-            }
+        // Silently validate fonts without logging
+        this.isFontLoaded({ family: fontFamily, style: 'Regular' });
+        if (fontFamily !== 'Inter') {
+            this.isFontLoaded({ family: 'Inter', style: 'Regular' });
         }
     }
 

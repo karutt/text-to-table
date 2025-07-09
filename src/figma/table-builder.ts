@@ -67,10 +67,6 @@ export class FigmaTableBuilder {
             throw new Error('Table data is empty');
         }
 
-        console.log(
-            `📊 Table analysis: ${data.length} rows × ${data[0]?.length || 0} cols = ${totalCells} cells`,
-        );
-
         // Use progressive rendering for large tables
         if (shouldUseProgressive) {
             return this.buildTableProgressive(data, options, cellFormats);
@@ -407,11 +403,6 @@ export class FigmaTableBuilder {
 
         // Apply partial formatting if available
         if (cellFormat?.segments && cellFormat.segments.length > 0) {
-            console.log(`🎨 DEBUG: Applying partial formatting to cell "${text}"`);
-            console.log(
-                `🎨 DEBUG: Cell has ${cellFormat.segments.length} segments:`,
-                cellFormat.segments,
-            );
             await this.applyPartialFormatting(textNode, cellFormat.segments, config, isHeader);
         } else {
             // Apply hyperlink BEFORE setting text colors (for whole cell formatting)
@@ -422,7 +413,6 @@ export class FigmaTableBuilder {
                         type: 'URL',
                         value: cellFormat.linkUrl,
                     };
-                    console.log(`🔗 DEBUG: Applied full-cell hyperlink to "${text}"`);
                 } catch (error) {
                     console.warn('Failed to apply hyperlink:', error);
                 }
@@ -436,13 +426,9 @@ export class FigmaTableBuilder {
         if (cellFormat?.isLink && !(cellFormat?.segments && cellFormat.segments.length > 0)) {
             // Use blue color for full-cell links (only when no segments exist)
             textNode.fills = [{ type: 'SOLID', color: { r: 0.145, g: 0.388, b: 0.922 } }]; // #2563EB
-            console.log(`🔗 DEBUG: Applied blue color to full-cell link "${text}"`);
         } else if (cellFormat?.segments && cellFormat.segments.length > 0) {
             // For cells with segments, DON'T set the global color
             // Instead, apply colors to each segment individually after partial formatting is done
-            console.log(
-                `🎨 DEBUG: Skipping global color for segmented cell "${text}" - will apply per-segment colors`,
-            );
 
             // Apply default color to all text first, then links will override
             textNode.fills = [{ type: 'SOLID', color: textColor }];
@@ -466,7 +452,6 @@ export class FigmaTableBuilder {
             }
         } else {
             textNode.fills = [{ type: 'SOLID', color: textColor }];
-            console.log(`⚫ DEBUG: Applied default color to regular cell "${text}"`);
         }
 
         // Automatic text resizing
@@ -492,22 +477,11 @@ export class FigmaTableBuilder {
         config: TableConfig,
         isHeader: boolean,
     ): Promise<void> {
-        console.log(`🎨 DEBUG: applyPartialFormatting called for ${segments.length} segments`);
         let currentPosition = 0;
 
         for (const segment of segments) {
             const segmentStart = currentPosition;
             const segmentEnd = currentPosition + segment.text.length;
-
-            console.log(
-                `🔍 DEBUG: Processing segment "${segment.text}" (${segmentStart}-${segmentEnd})`,
-            );
-            console.log(`🔍 DEBUG: Segment properties:`, {
-                isBold: segment.isBold,
-                isItalic: segment.isItalic,
-                isLink: segment.isLink,
-                linkUrl: segment.linkUrl,
-            });
 
             // Apply bold formatting
             if (segment.isBold) {
@@ -558,23 +532,12 @@ export class FigmaTableBuilder {
                     });
 
                     // Set link color for this range
-                    console.log(
-                        `🎨 DEBUG: Setting blue color for link "${segment.text}" (${segmentStart}-${segmentEnd})`,
-                    );
                     textNode.setRangeFills(segmentStart, segmentEnd, [
                         { type: 'SOLID', color: { r: 0.145, g: 0.388, b: 0.922 } }, // #2563EB
                     ]);
-
-                    // Verify the color was actually applied
-                    const appliedFills = textNode.getRangeFills(segmentStart, segmentEnd);
-                    console.log(`🔍 DEBUG: Verified color after setting:`, appliedFills);
-
-                    console.log(
-                        `✅ DEBUG: Successfully applied link color to "${segment.text}" (${segmentStart}-${segmentEnd})`,
-                    );
                 } catch (error) {
                     console.error(
-                        `❌ DEBUG: Failed to apply hyperlink formatting to "${segment.text}":`,
+                        `Failed to apply hyperlink formatting to "${segment.text}":`,
                         error,
                     );
                 }
