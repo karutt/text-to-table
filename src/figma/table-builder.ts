@@ -34,7 +34,7 @@ export const DEFAULT_TABLE_CONFIG: TableConfig = {
     fontSize: 14,
     fontFamily: 'Inter',
     fontWeight: 400,
-    textColor: { r: 0.1, g: 0.1, b: 0.1 },
+    textColor: { r: 0.035, g: 0.035, b: 0.043 }, // #09090B
     headerTextColor: { r: 0.05, g: 0.05, b: 0.05 },
     minCellWidth: 200,
     minCellHeight: 36,
@@ -424,8 +424,14 @@ export class FigmaTableBuilder {
             isHeader && config.headerTextColor ? config.headerTextColor : config.textColor;
 
         if (cellFormat?.isLink && !(cellFormat?.segments && cellFormat.segments.length > 0)) {
-            // Use blue color for full-cell links (only when no segments exist)
-            textNode.fills = [{ type: 'SOLID', color: { r: 0.145, g: 0.388, b: 0.922 } }]; // #2563EB
+            // Use dark gray color for full-cell links (only when no segments exist)
+            textNode.fills = [{ type: 'SOLID', color: { r: 0.153, g: 0.157, b: 0.165 } }]; // #27272a
+            
+            // Add underline for full-cell links
+            textNode.textDecoration = 'UNDERLINE';
+            textNode.textDecorationColor = { 
+                value: { type: 'SOLID', color: { r: 0.831, g: 0.831, b: 0.831 } } // #D4D4D4
+            };
         } else if (cellFormat?.segments && cellFormat.segments.length > 0) {
             // For cells with segments, DON'T set the global color
             // Instead, apply colors to each segment individually after partial formatting is done
@@ -440,11 +446,8 @@ export class FigmaTableBuilder {
                 const segmentEnd = currentPosition + segment.text.length;
 
                 if (segment.isLink) {
-                    console.log(
-                        `🔗 DEBUG: Re-applying blue color to link segment "${segment.text}" (${segmentStart}-${segmentEnd})`,
-                    );
                     textNode.setRangeFills(segmentStart, segmentEnd, [
-                        { type: 'SOLID', color: { r: 0.145, g: 0.388, b: 0.922 } }, // #2563EB
+                        { type: 'SOLID', color: { r: 0.153, g: 0.157, b: 0.165 } }, // #27272a
                     ]);
                 }
 
@@ -511,9 +514,6 @@ export class FigmaTableBuilder {
                         textNode.setRangeFontName(segmentStart, segmentEnd, italicFont);
                     } catch {
                         // Fallback: use text decoration for italic if font variant is not available
-                        console.warn(
-                            `Italic font ${config.fontFamily} ${italicStyle} not available`,
-                        );
                     }
                 } catch (error) {
                     console.warn('Failed to apply italic formatting:', error);
@@ -523,18 +523,21 @@ export class FigmaTableBuilder {
             // Apply hyperlink
             if (segment.isLink && segment.linkUrl) {
                 try {
-                    console.log(
-                        `🔗 DEBUG: Applying hyperlink to "${segment.text}" (${segmentStart}-${segmentEnd})`,
-                    );
                     textNode.setRangeHyperlink(segmentStart, segmentEnd, {
                         type: 'URL',
                         value: segment.linkUrl,
                     });
 
-                    // Set link color for this range
+                    // Set link color (#27272a) for this range
                     textNode.setRangeFills(segmentStart, segmentEnd, [
-                        { type: 'SOLID', color: { r: 0.145, g: 0.388, b: 0.922 } }, // #2563EB
+                        { type: 'SOLID', color: { r: 0.153, g: 0.157, b: 0.165 } }, // #27272a
                     ]);
+
+                    // Add underline with color #D4D4D4 for this range
+                    textNode.setRangeTextDecoration(segmentStart, segmentEnd, 'UNDERLINE');
+                    textNode.setRangeTextDecorationColor(segmentStart, segmentEnd, {
+                        value: { type: 'SOLID', color: { r: 0.831, g: 0.831, b: 0.831 } }
+                    });
                 } catch (error) {
                     console.error(
                         `Failed to apply hyperlink formatting to "${segment.text}":`,
