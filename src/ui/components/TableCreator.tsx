@@ -21,6 +21,7 @@ export const TableCreator: React.FC<TableCreatorProps> = props => {
         setFormat,
         setActiveTab,
         handleCreate,
+        handleCreateMultiple,
         handleCreateFromUpload,
         handleFileUploaded,
         handleFilesRemoved,
@@ -99,28 +100,39 @@ export const TableCreator: React.FC<TableCreatorProps> = props => {
                         <VStack align="stretch" gap={6} mt={4}>
                             {/* Format Selector - only shown in manual mode */}
                             <FormatSelector value={format} onChange={handleFormatChange} />
-
                             <TextInput
                                 value={text}
                                 onChange={setText}
                                 format={format}
                                 placeholder={getPlaceholderText(format)}
                                 disabled={isLoading}
-                            />
-
+                            />{' '}
                             {/* Create Table Button for manual input */}
-
-                            <Button
-                                w="full"
-                                colorPalette="blue"
-                                disabled={!hasValidText || isLoading}
-                                loading={isLoading}
-                                loadingText="Creating table..."
-                                onClick={handleCreate}
-                                size="lg"
-                            >
-                                Create Table
-                            </Button>
+                            {format === 'markdown' ? (
+                                <Button
+                                    w="full"
+                                    colorPalette="blue"
+                                    disabled={!hasValidText || isLoading}
+                                    loading={isLoading}
+                                    loadingText="Creating tables..."
+                                    onClick={handleCreateMultiple}
+                                    size="lg"
+                                >
+                                    Create Tables
+                                </Button>
+                            ) : (
+                                <Button
+                                    w="full"
+                                    colorPalette="blue"
+                                    disabled={!hasValidText || isLoading}
+                                    loading={isLoading}
+                                    loadingText="Creating table..."
+                                    onClick={handleCreate}
+                                    size="lg"
+                                >
+                                    Create Table
+                                </Button>
+                            )}
                         </VStack>
                     </Tabs.Content>
 

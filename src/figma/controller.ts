@@ -1068,8 +1068,7 @@ export class TableController {
         }>
     > {
         // Get actual plugin default values
-        const config = this.tableBuilder.getConfig();
-        const defaultPaddingTopBottom = config.cellPadding / 2;
+        const defaultPaddingTopBottom = 12; // Y方向のpaddingのデフォルト値を12pxに固定
 
         // 1. Collect padding values for each row
         const paddingStats = rows.map((row, index) => {
@@ -1204,12 +1203,8 @@ export class TableController {
                         tableData.cellFormats,
                     );
 
-                    // Set table name with title if available
-                    if (tableData.title) {
-                        tableNode.name = `Table: ${tableData.title}`;
-                    } else {
-                        tableNode.name = `Table ${i + 1}`;
-                    }
+                    // Set table name
+                    tableNode.name = `Table ${i + 1}`;
 
                     // Add table metadata
                     const tableMetadata = {
@@ -1218,36 +1213,16 @@ export class TableController {
                         hasHeader: tableData.hasHeader,
                         rowCount: tableData.data.length,
                         columnCount: tableData.data[0]?.length || 0,
-                        filename: tableData.title || null,
+                        filename: null,
                         createdAt: new Date().toISOString(),
                     };
                     tableNode.setPluginData('metadata', JSON.stringify(tableMetadata));
-
-                    // Add title text above table if available
-                    if (tableData.title) {
-                        const titleFrame = figma.createFrame();
-                        titleFrame.name = 'Table Title';
-                        titleFrame.layoutMode = 'VERTICAL';
-                        titleFrame.primaryAxisSizingMode = 'AUTO';
-                        titleFrame.counterAxisSizingMode = 'AUTO';
-                        titleFrame.fills = [];
-
-                        const titleText = figma.createText();
-                        titleText.fontName = { family: 'Inter', style: 'Bold' };
-                        titleText.fontSize = 16;
-                        titleText.characters = tableData.title;
-                        titleText.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.2, b: 0.2 } }];
-
-                        titleFrame.appendChild(titleText);
-                        containerNode.appendChild(titleFrame);
-                    }
 
                     containerNode.appendChild(tableNode);
                     tableNodes.push(tableNode);
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                    const tableName = tableData.title || `Table ${i + 1}`;
-                    errors.push(`${tableName}: ${errorMessage}`);
+                    errors.push(`Table ${i + 1}: ${errorMessage}`);
                 }
             }
 

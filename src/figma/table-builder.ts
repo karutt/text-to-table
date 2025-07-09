@@ -28,15 +28,15 @@ export interface TableBuildOptions {
 export const DEFAULT_TABLE_CONFIG: TableConfig = {
     cellPadding: 12,
     borderWidth: 1,
-    borderColor: { r: 0.8, g: 0.8, b: 0.8 },
+    borderColor: { r: 0.894, g: 0.894, b: 0.906 }, // #E4E4E7
     backgroundColor: { r: 1, g: 1, b: 1 },
-    headerBackgroundColor: { r: 0.95, g: 0.95, b: 0.95 },
+    headerBackgroundColor: { r: 0.957, g: 0.957, b: 0.965 }, // #F4F4F5
     fontSize: 14,
     fontFamily: 'Inter',
     fontWeight: 400,
     textColor: { r: 0.1, g: 0.1, b: 0.1 },
     headerTextColor: { r: 0.05, g: 0.05, b: 0.05 },
-    minCellWidth: 80,
+    minCellWidth: 200,
     minCellHeight: 36,
 };
 
@@ -237,9 +237,9 @@ export class FigmaTableBuilder {
         tableFrame.cornerRadius = 4;
         tableFrame.clipsContent = true;
 
-        // Table Auto Layout settings: width = column count × 100, height = hug
+        // Table Auto Layout settings: width = column count × minCellWidth, height = hug
         const columnCount = data[0]?.length || 1;
-        const tableWidth = columnCount * 100;
+        const tableWidth = columnCount * config.minCellWidth;
         tableFrame.layoutSizingHorizontal = 'FIXED'; // width = fixed
         tableFrame.layoutSizingVertical = 'HUG'; // height = hug
         tableFrame.resize(tableWidth, 100); // Set width (height will be adjusted by Auto Layout later)
@@ -331,8 +331,8 @@ export class FigmaTableBuilder {
 
         cellFrame.paddingLeft = config.cellPadding;
         cellFrame.paddingRight = config.cellPadding;
-        cellFrame.paddingTop = config.cellPadding / 2;
-        cellFrame.paddingBottom = config.cellPadding / 2;
+        cellFrame.paddingTop = 12; // Y方向のpaddingを12pxに固定
+        cellFrame.paddingBottom = 12; // Y方向のpaddingを12pxに固定
 
         // Cell background color
         const backgroundColor =
@@ -342,10 +342,13 @@ export class FigmaTableBuilder {
 
         cellFrame.fills = [{ type: 'SOLID', color: backgroundColor }];
 
-        // Border settings
+        // Border settings - only bottom border
         cellFrame.strokes = [{ type: 'SOLID', color: config.borderColor }];
-        cellFrame.strokeWeight = config.borderWidth;
         cellFrame.strokeAlign = 'CENTER'; // Set border alignment to center
+        cellFrame.strokeTopWeight = 0;
+        cellFrame.strokeRightWeight = 0;
+        cellFrame.strokeBottomWeight = config.borderWidth;
+        cellFrame.strokeLeftWeight = 0;
 
         // Cell Auto Layout settings are set after adding to parent (Row)
         // width = fill (evenly distributed within row), height = hug
@@ -404,6 +407,11 @@ export class FigmaTableBuilder {
 
         // Apply partial formatting if available
         if (cellFormat?.segments && cellFormat.segments.length > 0) {
+            console.log(`🎨 DEBUG: Applying partial formatting to cell "${text}"`);
+            console.log(
+                `🎨 DEBUG: Cell has ${cellFormat.segments.length} segments:`,
+                cellFormat.segments,
+            );
             await this.applyPartialFormatting(textNode, cellFormat.segments, config, isHeader);
         } else {
             // Apply hyperlink BEFORE setting text colors (for whole cell formatting)
@@ -414,6 +422,7 @@ export class FigmaTableBuilder {
                         type: 'URL',
                         value: cellFormat.linkUrl,
                     };
+                    console.log(`🔗 DEBUG: Applied full-cell hyperlink to "${text}"`);
                 } catch (error) {
                     console.warn('Failed to apply hyperlink:', error);
                 }
@@ -424,11 +433,40 @@ export class FigmaTableBuilder {
         const textColor =
             isHeader && config.headerTextColor ? config.headerTextColor : config.textColor;
 
-        if (cellFormat?.isLink) {
-            // Use blue color for links
-            textNode.fills = [{ type: 'SOLID', color: { r: 0.0, g: 0.4, b: 0.8 } }];
+        if (cellFormat?.isLink && !(cellFormat?.segments && cellFormat.segments.length > 0)) {
+            // Use blue color for full-cell links (only when no segments exist)
+            textNode.fills = [{ type: 'SOLID', color: { r: 0.145, g: 0.388, b: 0.922 } }]; // #2563EB
+            console.log(`🔗 DEBUG: Applied blue color to full-cell link "${text}"`);
+        } else if (cellFormat?.segments && cellFormat.segments.length > 0) {
+            // For cells with segments, DON'T set the global color
+            // Instead, apply colors to each segment individually after partial formatting is done
+            console.log(
+                `🎨 DEBUG: Skipping global color for segmented cell "${text}" - will apply per-segment colors`,
+            );
+
+            // Apply default color to all text first, then links will override
+            textNode.fills = [{ type: 'SOLID', color: textColor }];
+
+            // Now re-apply link colors to ensure they're not overwritten
+            let currentPosition = 0;
+            for (const segment of cellFormat.segments) {
+                const segmentStart = currentPosition;
+                const segmentEnd = currentPosition + segment.text.length;
+
+                if (segment.isLink) {
+                    console.log(
+                        `🔗 DEBUG: Re-applying blue color to link segment "${segment.text}" (${segmentStart}-${segmentEnd})`,
+                    );
+                    textNode.setRangeFills(segmentStart, segmentEnd, [
+                        { type: 'SOLID', color: { r: 0.145, g: 0.388, b: 0.922 } }, // #2563EB
+                    ]);
+                }
+
+                currentPosition += segment.text.length;
+            }
         } else {
             textNode.fills = [{ type: 'SOLID', color: textColor }];
+            console.log(`⚫ DEBUG: Applied default color to regular cell "${text}"`);
         }
 
         // Automatic text resizing
@@ -454,11 +492,22 @@ export class FigmaTableBuilder {
         config: TableConfig,
         isHeader: boolean,
     ): Promise<void> {
+        console.log(`🎨 DEBUG: applyPartialFormatting called for ${segments.length} segments`);
         let currentPosition = 0;
 
         for (const segment of segments) {
             const segmentStart = currentPosition;
             const segmentEnd = currentPosition + segment.text.length;
+
+            console.log(
+                `🔍 DEBUG: Processing segment "${segment.text}" (${segmentStart}-${segmentEnd})`,
+            );
+            console.log(`🔍 DEBUG: Segment properties:`, {
+                isBold: segment.isBold,
+                isItalic: segment.isItalic,
+                isLink: segment.isLink,
+                linkUrl: segment.linkUrl,
+            });
 
             // Apply bold formatting
             if (segment.isBold) {
@@ -500,17 +549,34 @@ export class FigmaTableBuilder {
             // Apply hyperlink
             if (segment.isLink && segment.linkUrl) {
                 try {
+                    console.log(
+                        `🔗 DEBUG: Applying hyperlink to "${segment.text}" (${segmentStart}-${segmentEnd})`,
+                    );
                     textNode.setRangeHyperlink(segmentStart, segmentEnd, {
                         type: 'URL',
                         value: segment.linkUrl,
                     });
 
                     // Set link color for this range
+                    console.log(
+                        `🎨 DEBUG: Setting blue color for link "${segment.text}" (${segmentStart}-${segmentEnd})`,
+                    );
                     textNode.setRangeFills(segmentStart, segmentEnd, [
-                        { type: 'SOLID', color: { r: 0.0, g: 0.4, b: 0.8 } },
+                        { type: 'SOLID', color: { r: 0.145, g: 0.388, b: 0.922 } }, // #2563EB
                     ]);
+
+                    // Verify the color was actually applied
+                    const appliedFills = textNode.getRangeFills(segmentStart, segmentEnd);
+                    console.log(`🔍 DEBUG: Verified color after setting:`, appliedFills);
+
+                    console.log(
+                        `✅ DEBUG: Successfully applied link color to "${segment.text}" (${segmentStart}-${segmentEnd})`,
+                    );
                 } catch (error) {
-                    console.warn('Failed to apply hyperlink formatting:', error);
+                    console.error(
+                        `❌ DEBUG: Failed to apply hyperlink formatting to "${segment.text}":`,
+                        error,
+                    );
                 }
             }
 
@@ -522,21 +588,11 @@ export class FigmaTableBuilder {
      * Adjust the overall size of the table
      */
     private adjustTableSize(tableFrame: FrameNode): void {
-        // The table width is already set to column count × 100
+        // The table width is already set to column count × minCellWidth
         // The height is automatically adjusted by Auto Layout
 
-        // Add drop shadow to the entire table (optional)
-        tableFrame.effects = [
-            {
-                type: 'DROP_SHADOW',
-                color: { r: 0, g: 0, b: 0, a: 0.1 },
-                offset: { x: 0, y: 2 },
-                radius: 4,
-                spread: 0,
-                visible: true,
-                blendMode: 'NORMAL',
-            },
-        ];
+        // No drop shadow (removed as requested)
+        tableFrame.effects = [];
     }
 
     /**

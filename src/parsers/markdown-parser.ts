@@ -31,9 +31,7 @@ export interface CellFormat {
 export interface MarkdownParseResult extends ParseResult {
     alignments?: ColumnAlignment[];
     cellFormats?: CellFormat[][];
-    tableTitles?: string[]; // テーブルのタイトル情報
     multipleTablesData?: Array<{
-        title?: string;
         data: string[][];
         alignments?: ColumnAlignment[];
         cellFormats?: CellFormat[][];
@@ -162,10 +160,8 @@ export class MarkdownParser implements DataParser {
             const result = this.parse(tables[0].content, options);
             return {
                 ...result,
-                tableTitles: tables[0].title ? [tables[0].title] : undefined,
                 multipleTablesData: [
                     {
-                        title: tables[0].title,
                         data: result.data,
                         alignments: (result as MarkdownParseResult).alignments,
                         cellFormats: (result as MarkdownParseResult).cellFormats,
@@ -177,7 +173,6 @@ export class MarkdownParser implements DataParser {
 
         // Parse multiple tables
         const multipleTablesData: Array<{
-            title?: string;
             data: string[][];
             alignments?: ColumnAlignment[];
             cellFormats?: CellFormat[][];
@@ -193,7 +188,6 @@ export class MarkdownParser implements DataParser {
 
             if (tableResult.data.length > 0) {
                 multipleTablesData.push({
-                    title: table.title,
                     data: tableResult.data,
                     alignments: (tableResult as MarkdownParseResult).alignments,
                     cellFormats: (tableResult as MarkdownParseResult).cellFormats,
@@ -216,9 +210,6 @@ export class MarkdownParser implements DataParser {
                 columnCount: maxColumns,
                 format: 'markdown' as const,
             },
-            tableTitles: tables
-                .map(t => t.title)
-                .filter((title): title is string => Boolean(title)),
             multipleTablesData,
         };
     }
@@ -227,13 +218,11 @@ export class MarkdownParser implements DataParser {
      * Extract multiple tables with their titles from markdown text
      */
     private extractMultipleTablesFromText(text: string): Array<{
-        title?: string;
         content: string;
     }> {
         const lines = text.split('\n');
-        const tables: Array<{ title?: string; content: string }> = [];
+        const tables: Array<{ content: string }> = [];
         let currentTable: string[] = [];
-        let currentTitle: string | undefined;
         let inTable = false;
 
         for (let i = 0; i < lines.length; i++) {
@@ -247,26 +236,15 @@ export class MarkdownParser implements DataParser {
                     // Save current table
                     if (currentTable.length > 0) {
                         tables.push({
-                            title: currentTitle,
                             content: currentTable.join('\n'),
                         });
                     }
                     currentTable = [];
-                    currentTitle = undefined;
                     inTable = false;
-
-                    // Check if this line is a new heading
-                    if (this.isHeading(trimmedLine)) {
-                        currentTitle = this.extractHeadingText(trimmedLine);
-                    }
                 } else {
                     // Empty line within table - include it
                     currentTable.push(line);
                 }
-            }
-            // Check for table caption (heading before table)
-            else if (!inTable && this.isHeading(trimmedLine)) {
-                currentTitle = this.extractHeadingText(trimmedLine);
             }
             // Table row detected
             else if (this.isTableRow(trimmedLine) || this.isSeparatorLine(trimmedLine)) {
@@ -280,7 +258,7 @@ export class MarkdownParser implements DataParser {
             else if (!inTable && trimmedLine === '') {
                 continue;
             }
-            // Non-table, non-heading content when not in table - skip
+            // Non-table content when not in table - skip
             else if (!inTable) {
                 continue;
             }
@@ -289,7 +267,6 @@ export class MarkdownParser implements DataParser {
         // Save last table if exists
         if (inTable && currentTable.length > 0) {
             tables.push({
-                title: currentTitle,
                 content: currentTable.join('\n'),
             });
         }
@@ -298,27 +275,8 @@ export class MarkdownParser implements DataParser {
     }
 
     /**
-     * Check if line is a markdown heading
+     * Extract table content from mixed markdown text
      */
-    private isHeading(line: string): boolean {
-        return /^#{1,6}\s+/.test(line);
-    }
-
-    /**
-     * Extract text from markdown heading and remove bold markup
-     */
-    private extractHeadingText(line: string): string {
-        let headingText = line.replace(/^#{1,6}\s+/, '').trim();
-
-        // Remove all markdown formatting from headings since headings are already bold by default
-        headingText = headingText.replace(/\*\*\*(.*?)\*\*\*/g, '$1'); // ***text*** -> text
-        headingText = headingText.replace(/\*\*(.*?)\*\*/g, '$1'); // **text** -> text
-        headingText = headingText.replace(/__(.*?)__/g, '$1'); // __text__ -> text
-        headingText = headingText.replace(/\*(.*?)\*/g, '$1'); // *text* -> text (italic)
-        headingText = headingText.replace(/_(.*?)_/g, '$1'); // _text_ -> text (italic)
-
-        return headingText;
-    }
     private extractTableFromText(text: string): string {
         const lines = text.split('\n');
         const tableLines: string[] = [];
@@ -473,13 +431,19 @@ export class MarkdownParser implements DataParser {
             };
         }
 
-        // Check for links ([text](url))
+        // Check for links ([text](url)) - strip markdown from link text
         const linkMatch = unescapedText.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (linkMatch) {
+            let displayText = linkMatch[1];
+            // Simply remove any markdown formatting from link text
+            displayText = displayText.replace(/\*\*\*([^*]+)\*\*\*/g, '$1'); // bold+italic ***text***
+            displayText = displayText.replace(/\*\*([^*]+)\*\*/g, '$1'); // bold **text**
+            displayText = displayText.replace(/\*([^*]+)\*/g, '$1'); // italic *text*
+
             return {
-                text: linkMatch[1],
+                text: displayText,
                 format: {
-                    text: linkMatch[1],
+                    text: displayText,
                     isLink: true,
                     linkUrl: linkMatch[2],
                 },
@@ -631,6 +595,25 @@ export class MarkdownParser implements DataParser {
         isLink?: boolean;
         linkUrl?: string;
     }> {
+        return this.parsePartialFormattingNew(text);
+    }
+
+    /**
+     * New implementation for parsing partial formatting
+     * This implementation properly handles complex cases like:
+     * - Multiple links in one cell: "[GitHub](url) ~94k⭐, [npm](url) 3.2M/week"
+     * - Links with formatting: "[**Mantine**](url)"
+     * - Mixed text and links: "foo [bar](url) baz"
+     */
+    private parsePartialFormattingNew(text: string): Array<{
+        text: string;
+        start: number;
+        end: number;
+        isBold?: boolean;
+        isItalic?: boolean;
+        isLink?: boolean;
+        linkUrl?: string;
+    }> {
         const segments: Array<{
             text: string;
             start: number;
@@ -641,134 +624,157 @@ export class MarkdownParser implements DataParser {
             linkUrl?: string;
         }> = [];
 
-        let currentPos = 0;
+        // Interface for detected patterns
+        interface Pattern {
+            type: 'link' | 'bolditalic' | 'bold' | 'italic';
+            start: number;
+            end: number;
+            content: string;
+            url?: string;
+            isBold?: boolean;
+            isItalic?: boolean;
+            originalLength: number; // Length including markdown syntax
+        }
 
-        // Process links first [text](url)
-        text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url, offset) => {
-            // Add any text before this link
-            if (offset > currentPos) {
-                segments.push({
-                    text: text.slice(currentPos, offset),
-                    start: currentPos,
-                    end: offset,
-                });
-            }
+        const patterns: Pattern[] = [];
 
-            // Add the link segment
-            segments.push({
-                text: linkText,
-                start: offset,
-                end: offset + linkText.length,
-                isLink: true,
-                linkUrl: url,
-            });
+        // Find all patterns and their positions
+        let match: RegExpExecArray | null; // 1. Find links [text](url) - simply strip any markdown formatting from link text
+        const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+        while ((match = linkRegex.exec(text)) !== null) {
+            const fullMatch = match[0];
+            const linkText = match[1];
+            const url = match[2];
 
-            currentPos = offset + match.length;
-            return linkText;
-        });
+            // Simply remove any markdown formatting from link text
+            let displayText = linkText;
+            displayText = displayText.replace(/\*\*\*([^*]+)\*\*\*/g, '$1'); // bold+italic ***text***
+            displayText = displayText.replace(/\*\*([^*]+)\*\*/g, '$1'); // bold **text**
+            displayText = displayText.replace(/\*([^*]+)\*/g, '$1'); // italic *text*
 
-        // Reset and process formatting on the cleaned text
-        let cleanedText = text;
-        // Remove link markdown but keep the text
-        cleanedText = cleanedText.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-
-        currentPos = 0;
-        const formattingSegments: typeof segments = [];
-
-        // Process bold+italic (***text***)
-        cleanedText.replace(/\*\*\*([^*]+)\*\*\*/g, (match, content, offset) => {
-            // Add text before formatting
-            if (offset > currentPos) {
-                formattingSegments.push({
-                    text: cleanedText.slice(currentPos, offset),
-                    start: currentPos,
-                    end: offset,
-                });
-            }
-
-            // Add formatted segment
-            formattingSegments.push({
-                text: content,
-                start: offset,
-                end: offset + content.length,
-                isBold: true,
-                isItalic: true,
-            });
-
-            currentPos = offset + match.length;
-            return content;
-        });
-
-        // Process bold (**text**)
-        cleanedText.replace(/\*\*([^*]+)\*\*/g, (match, content, offset) => {
-            // Skip if already processed as bold+italic
-            const alreadyProcessed = formattingSegments.some(
-                seg => offset >= seg.start && offset < seg.end,
-            );
-            if (alreadyProcessed) return content;
-
-            // Add text before formatting
-            if (offset > currentPos) {
-                formattingSegments.push({
-                    text: cleanedText.slice(currentPos, offset),
-                    start: currentPos,
-                    end: offset,
-                });
-            }
-
-            // Add formatted segment
-            formattingSegments.push({
-                text: content,
-                start: offset,
-                end: offset + content.length,
-                isBold: true,
-            });
-
-            currentPos = offset + match.length;
-            return content;
-        });
-
-        // Process italic (*text*)
-        cleanedText.replace(/\*([^*]+)\*/g, (match, content, offset) => {
-            // Skip if already processed
-            const alreadyProcessed = formattingSegments.some(
-                seg => offset >= seg.start && offset < seg.end,
-            );
-            if (alreadyProcessed) return content;
-
-            // Add text before formatting
-            if (offset > currentPos) {
-                formattingSegments.push({
-                    text: cleanedText.slice(currentPos, offset),
-                    start: currentPos,
-                    end: offset,
-                });
-            }
-
-            // Add formatted segment
-            formattingSegments.push({
-                text: content,
-                start: offset,
-                end: offset + content.length,
-                isItalic: true,
-            });
-
-            currentPos = offset + match.length;
-            return content;
-        });
-
-        // Add remaining text
-        if (currentPos < cleanedText.length) {
-            formattingSegments.push({
-                text: cleanedText.slice(currentPos),
-                start: currentPos,
-                end: cleanedText.length,
+            patterns.push({
+                type: 'link',
+                start: match.index,
+                end: match.index + fullMatch.length,
+                content: displayText,
+                url: url,
+                originalLength: fullMatch.length,
             });
         }
 
-        // Merge with link segments if any
-        return formattingSegments.length > 0
-            ? formattingSegments
-            : [{ text, start: 0, end: text.length }];
+        // 2. Find non-link formatting patterns (only in areas not covered by links)
+        const isInsideLink = (pos: number): boolean => {
+            return patterns.some(p => p.type === 'link' && pos >= p.start && pos < p.end);
+        };
+
+        // Bold+italic ***text***
+        const boldItalicRegex = /\*\*\*([^*]+)\*\*\*/g;
+        while ((match = boldItalicRegex.exec(text)) !== null) {
+            if (!isInsideLink(match.index)) {
+                patterns.push({
+                    type: 'bolditalic',
+                    start: match.index,
+                    end: match.index + match[0].length,
+                    content: match[1],
+                    isBold: true,
+                    isItalic: true,
+                    originalLength: match[0].length,
+                });
+            }
+        }
+
+        // Bold **text**
+        const boldRegex = /\*\*([^*]+)\*\*/g;
+        while ((match = boldRegex.exec(text)) !== null) {
+            if (!isInsideLink(match.index)) {
+                // Check if overlaps with bold+italic
+                const overlaps = patterns.some(
+                    p => p.type === 'bolditalic' && match!.index >= p.start && match!.index < p.end,
+                );
+                if (!overlaps) {
+                    patterns.push({
+                        type: 'bold',
+                        start: match.index,
+                        end: match.index + match[0].length,
+                        content: match[1],
+                        isBold: true,
+                        originalLength: match[0].length,
+                    });
+                }
+            }
+        }
+
+        // Italic *text* (single asterisk)
+        const italicRegex = /\*([^*]+)\*/g;
+        while ((match = italicRegex.exec(text)) !== null) {
+            if (!isInsideLink(match.index)) {
+                // Check if overlaps with other patterns
+                const overlaps = patterns.some(
+                    p => match!.index >= p.start && match!.index < p.end,
+                );
+                if (!overlaps) {
+                    patterns.push({
+                        type: 'italic',
+                        start: match.index,
+                        end: match.index + match[0].length,
+                        content: match[1],
+                        isItalic: true,
+                        originalLength: match[0].length,
+                    });
+                }
+            }
+        }
+
+        // Sort patterns by start position
+        patterns.sort((a, b) => a.start - b.start);
+
+        // Build final segments with correct positions
+        let currentInputPos = 0;
+        let currentOutputPos = 0;
+
+        for (const pattern of patterns) {
+            // Add text before this pattern
+            if (pattern.start > currentInputPos) {
+                const beforeText = text.slice(currentInputPos, pattern.start);
+                if (beforeText) {
+                    segments.push({
+                        text: beforeText,
+                        start: currentOutputPos,
+                        end: currentOutputPos + beforeText.length,
+                    });
+                    currentOutputPos += beforeText.length;
+                }
+            }
+
+            // Add the pattern segment
+            segments.push({
+                text: pattern.content,
+                start: currentOutputPos,
+                end: currentOutputPos + pattern.content.length,
+                isLink: pattern.type === 'link',
+                linkUrl: pattern.url,
+                // Only apply bold/italic for non-link patterns
+                isBold: pattern.type !== 'link' ? pattern.isBold : undefined,
+                isItalic: pattern.type !== 'link' ? pattern.isItalic : undefined,
+            });
+
+            currentOutputPos += pattern.content.length;
+            currentInputPos = pattern.end;
+        }
+
+        // Add remaining text after last pattern
+        if (currentInputPos < text.length) {
+            const remainingText = text.slice(currentInputPos);
+            if (remainingText) {
+                segments.push({
+                    text: remainingText,
+                    start: currentOutputPos,
+                    end: currentOutputPos + remainingText.length,
+                });
+            }
+        }
+
+        // Return segments or plain text if no patterns found
+        return segments.length > 0 ? segments : [{ text, start: 0, end: text.length }];
     }
 }
