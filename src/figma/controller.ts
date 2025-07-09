@@ -310,10 +310,11 @@ export class TableController {
                 figma.currentPage.appendChild(tableNode);
             }
 
-            // Select table and focus
+            // Select table without changing viewport
             if (!tableNode.removed) {
                 figma.currentPage.selection = [tableNode];
-                figma.viewport.scrollAndZoomIntoView([tableNode]);
+                // Removed: figma.viewport.scrollAndZoomIntoView([tableNode]);
+                // This prevents unwanted viewport position and zoom changes
             }
 
             return {
@@ -545,9 +546,10 @@ export class TableController {
                     figma.currentPage.appendChild(containerNode);
                 }
 
-                // Select container and focus
+                // Select container without changing viewport
                 figma.currentPage.selection = [containerNode];
-                figma.viewport.scrollAndZoomIntoView([containerNode]);
+                // Removed: figma.viewport.scrollAndZoomIntoView([containerNode]);
+                // This prevents unwanted viewport position and zoom changes
 
                 return {
                     success: true,
