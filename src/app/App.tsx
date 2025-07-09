@@ -92,11 +92,36 @@ function App() {
         [sendMessage],
     );
 
+    const handleCreateTablesFromMarkdown = useCallback(
+        async (request: CreateTableRequest): Promise<CreateTablesResponse> => {
+            return new Promise(resolve => {
+                setIsLoading(true);
+
+                const originalHandler = window.onmessage;
+                const responseHandler = (event: MessageEvent) => {
+                    const { type, data } = event.data.pluginMessage;
+                    if (type === 'create-tables-from-markdown-response') {
+                        setIsLoading(false);
+                        window.onmessage = originalHandler;
+                        resolve(data);
+                    } else if (originalHandler) {
+                        originalHandler.call(window, event);
+                    }
+                };
+
+                window.onmessage = responseHandler;
+                sendMessage('create-tables-from-markdown', request);
+            });
+        },
+        [sendMessage],
+    );
+
     return (
         <Box minH="100vh" p={4}>
             <TableCreator
                 onCreateTable={handleCreateTable}
                 onCreateTables={handleCreateTables}
+                onCreateTablesFromMarkdown={handleCreateTablesFromMarkdown}
                 isLoading={isLoading}
             />
         </Box>

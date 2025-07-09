@@ -9,6 +9,7 @@ import type { SupportedFormat } from '../../../parsers';
 export interface TableCreatorProps {
     onCreateTable: (request: CreateTableRequest) => Promise<CreateTableResponse>;
     onCreateTables: (request: CreateTablesRequest) => Promise<CreateTablesResponse>;
+    onCreateTablesFromMarkdown?: (request: CreateTableRequest) => Promise<CreateTablesResponse>;
     isLoading?: boolean;
 }
 

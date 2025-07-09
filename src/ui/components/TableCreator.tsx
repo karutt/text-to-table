@@ -21,6 +21,7 @@ export const TableCreator: React.FC<TableCreatorProps> = props => {
         setFormat,
         setActiveTab,
         handleCreate,
+        handleCreateFromUpload,
         handleFileUploaded,
         handleFilesRemoved,
         handleFilesSynced,
@@ -80,7 +81,7 @@ export const TableCreator: React.FC<TableCreatorProps> = props => {
                                 uploadedFileNames={uploadedFiles.map(f => f.filename)}
                                 disabled={isLoading}
                                 showActionButton={true}
-                                onActionButtonClick={handleCreate}
+                                onActionButtonClick={handleCreateFromUpload}
                                 actionButtonText={
                                     uploadedFiles.length > 1 ? 'Create Tables' : 'Create Table'
                                 }
@@ -108,6 +109,7 @@ export const TableCreator: React.FC<TableCreatorProps> = props => {
                             />
 
                             {/* Create Table Button for manual input */}
+
                             <Button
                                 w="full"
                                 colorPalette="blue"

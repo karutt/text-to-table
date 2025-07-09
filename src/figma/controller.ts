@@ -1,5 +1,6 @@
 import type { MarkdownParseResult, SupportedFormat } from '../parsers';
 import { detectFormat, getParser } from '../parsers';
+import { MarkdownParser } from '../parsers/markdown-parser';
 import type { ParseOptions, ParseResult } from '../types';
 import type { TableConfig } from './table-builder';
 import { DEFAULT_TABLE_CONFIG, FigmaTableBuilder } from './table-builder';
@@ -185,6 +186,22 @@ export class TableController {
                 format === 'markdown'
                     ? (parseResult as MarkdownParseResult).cellFormats
                     : undefined;
+
+            // Debug log for cellFormats
+            if (cellFormats) {
+                console.log('📋 Cell formats from parser:', {
+                    totalRows: cellFormats.length,
+                    sample: cellFormats.slice(0, 3).map((row, rowIndex) => ({
+                        row: rowIndex,
+                        cells: row.map((cell, cellIndex) => ({
+                            cell: cellIndex,
+                            text: cell.text,
+                            isLink: cell.isLink,
+                            linkUrl: cell.linkUrl,
+                        })),
+                    })),
+                });
+            }
 
             // Enable progressive rendering for large tables
             const dataSize = parseResult.data.length;
@@ -1114,8 +1131,169 @@ export class TableController {
     }
 
     /**
-     * Get the most frequent value by majority vote
+     * Create multiple tables from single markdown text containing multiple tables
      */
+    async createTablesFromMarkdown(request: CreateTableRequest): Promise<CreateTablesResponse> {
+        try {
+            const { text, parseOptions = {}, tableConfig = {}, position } = request;
+
+            // Use markdown parser to extract multiple tables
+            const parser = getParser('markdown') as MarkdownParser;
+            const parseResult = parser.parseMultipleTables(text, parseOptions);
+
+            if (!parseResult.multipleTablesData || parseResult.multipleTablesData.length === 0) {
+                return {
+                    success: false,
+                    errors: ['No tables found in markdown text'],
+                };
+            }
+
+            // If only one table, use regular createTable method
+            if (parseResult.multipleTablesData.length === 1) {
+                const singleResult = await this.createTable(request);
+                return {
+                    success: singleResult.success,
+                    tableNodes: singleResult.tableNode ? [singleResult.tableNode] : [],
+                    errors: singleResult.errors,
+                };
+            }
+
+            // Update table settings
+            if (Object.keys(tableConfig).length > 0) {
+                this.tableBuilder.updateConfig(tableConfig);
+            }
+
+            // Create container for multiple tables
+            const containerNode = figma.createFrame();
+            containerNode.name = 'Markdown Tables';
+
+            // Set up Auto Layout (vertical placement for multiple tables)
+            containerNode.layoutMode = 'VERTICAL';
+            containerNode.primaryAxisSizingMode = 'AUTO';
+            containerNode.counterAxisSizingMode = 'AUTO';
+            containerNode.itemSpacing = 40;
+            containerNode.paddingTop = 20;
+            containerNode.paddingBottom = 20;
+            containerNode.paddingLeft = 20;
+            containerNode.paddingRight = 20;
+
+            // Set background
+            containerNode.fills = [
+                {
+                    type: 'SOLID',
+                    color: { r: 0.99, g: 0.99, b: 0.99 },
+                    opacity: 1,
+                },
+            ];
+
+            const tableNodes: FrameNode[] = [];
+            const errors: string[] = [];
+
+            // Create each table
+            for (let i = 0; i < parseResult.multipleTablesData.length; i++) {
+                const tableData = parseResult.multipleTablesData[i];
+
+                try {
+                    const tableNode = await this.tableBuilder.buildTable(
+                        tableData.data,
+                        {
+                            config: this.tableBuilder.getConfig(),
+                            alignments: tableData.alignments,
+                            hasHeader: tableData.hasHeader,
+                        },
+                        tableData.cellFormats,
+                    );
+
+                    // Set table name with title if available
+                    if (tableData.title) {
+                        tableNode.name = `Table: ${tableData.title}`;
+                    } else {
+                        tableNode.name = `Table ${i + 1}`;
+                    }
+
+                    // Add table metadata
+                    const tableMetadata = {
+                        createdBy: 'text-to-table-plugin',
+                        format: 'markdown' as SupportedFormat,
+                        hasHeader: tableData.hasHeader,
+                        rowCount: tableData.data.length,
+                        columnCount: tableData.data[0]?.length || 0,
+                        filename: tableData.title || null,
+                        createdAt: new Date().toISOString(),
+                    };
+                    tableNode.setPluginData('metadata', JSON.stringify(tableMetadata));
+
+                    // Add title text above table if available
+                    if (tableData.title) {
+                        const titleFrame = figma.createFrame();
+                        titleFrame.name = 'Table Title';
+                        titleFrame.layoutMode = 'VERTICAL';
+                        titleFrame.primaryAxisSizingMode = 'AUTO';
+                        titleFrame.counterAxisSizingMode = 'AUTO';
+                        titleFrame.fills = [];
+
+                        const titleText = figma.createText();
+                        titleText.fontName = { family: 'Inter', style: 'Bold' };
+                        titleText.fontSize = 16;
+                        titleText.characters = tableData.title;
+                        titleText.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.2, b: 0.2 } }];
+
+                        titleFrame.appendChild(titleText);
+                        containerNode.appendChild(titleFrame);
+                    }
+
+                    containerNode.appendChild(tableNode);
+                    tableNodes.push(tableNode);
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    const tableName = tableData.title || `Table ${i + 1}`;
+                    errors.push(`${tableName}: ${errorMessage}`);
+                }
+            }
+
+            // If at least one table was created
+            if (tableNodes.length > 0) {
+                // Set container position
+                if (position) {
+                    containerNode.x = position.x;
+                    containerNode.y = position.y;
+                } else {
+                    const optimalPlacement = this.calculateOptimalPosition();
+                    containerNode.x = optimalPlacement.x;
+                    containerNode.y = optimalPlacement.y;
+                }
+
+                // Add container to page
+                figma.currentPage.appendChild(containerNode);
+
+                // Select container without changing viewport
+                figma.currentPage.selection = [containerNode];
+
+                return {
+                    success: true,
+                    containerNode,
+                    tableNodes,
+                    errors: errors.length > 0 ? errors : undefined,
+                };
+            } else {
+                // If all table creation failed
+                containerNode.remove();
+                return {
+                    success: false,
+                    errors: errors.length > 0 ? errors : ['Failed to create all tables'],
+                };
+            }
+        } catch (error) {
+            let errorMessage = 'Error occurred while creating multiple tables from markdown';
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            }
+            return {
+                success: false,
+                errors: [errorMessage],
+            };
+        }
+    }
     private getMajorityValue(values: number[]): number {
         const counts = new Map<number, number>();
 

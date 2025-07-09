@@ -402,16 +402,120 @@ export class FigmaTableBuilder {
         textNode.characters = text;
         textNode.fontSize = config.fontSize;
 
-        // Text color
+        // Apply partial formatting if available
+        if (cellFormat?.segments && cellFormat.segments.length > 0) {
+            await this.applyPartialFormatting(textNode, cellFormat.segments, config, isHeader);
+        } else {
+            // Apply hyperlink BEFORE setting text colors (for whole cell formatting)
+            if (cellFormat?.isLink && cellFormat.linkUrl) {
+                try {
+                    // Apply hyperlink to the entire text
+                    textNode.hyperlink = {
+                        type: 'URL',
+                        value: cellFormat.linkUrl,
+                    };
+                } catch (error) {
+                    console.warn('Failed to apply hyperlink:', error);
+                }
+            }
+        }
+
+        // Text color - apply after hyperlink to avoid conflicts
         const textColor =
             isHeader && config.headerTextColor ? config.headerTextColor : config.textColor;
 
-        textNode.fills = [{ type: 'SOLID', color: textColor }];
+        if (cellFormat?.isLink) {
+            // Use blue color for links
+            textNode.fills = [{ type: 'SOLID', color: { r: 0.0, g: 0.4, b: 0.8 } }];
+        } else {
+            textNode.fills = [{ type: 'SOLID', color: textColor }];
+        }
 
         // Automatic text resizing
         textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
 
         return textNode;
+    }
+
+    /**
+     * Apply partial formatting to specific character ranges in a text node
+     */
+    private async applyPartialFormatting(
+        textNode: TextNode,
+        segments: Array<{
+            text: string;
+            start: number;
+            end: number;
+            isBold?: boolean;
+            isItalic?: boolean;
+            isLink?: boolean;
+            linkUrl?: string;
+        }>,
+        config: TableConfig,
+        isHeader: boolean,
+    ): Promise<void> {
+        let currentPosition = 0;
+
+        for (const segment of segments) {
+            const segmentStart = currentPosition;
+            const segmentEnd = currentPosition + segment.text.length;
+
+            // Apply bold formatting
+            if (segment.isBold) {
+                try {
+                    const boldFont = FontManager.getBestAvailableFont(
+                        config.fontFamily,
+                        isHeader,
+                        true,
+                    );
+                    await FontManager.ensureFontLoaded(boldFont);
+                    textNode.setRangeFontName(segmentStart, segmentEnd, boldFont);
+                } catch (error) {
+                    console.warn('Failed to apply bold formatting:', error);
+                }
+            }
+
+            // Apply italic formatting
+            if (segment.isItalic) {
+                try {
+                    // For italic, we need to find an italic font variant
+                    const italicStyle = segment.isBold ? 'Bold Italic' : 'Italic';
+                    const italicFont = { family: config.fontFamily, style: italicStyle };
+
+                    // Try to load italic font, fallback to regular if not available
+                    try {
+                        await FontManager.ensureFontLoaded(italicFont);
+                        textNode.setRangeFontName(segmentStart, segmentEnd, italicFont);
+                    } catch {
+                        // Fallback: use text decoration for italic if font variant is not available
+                        console.warn(
+                            `Italic font ${config.fontFamily} ${italicStyle} not available`,
+                        );
+                    }
+                } catch (error) {
+                    console.warn('Failed to apply italic formatting:', error);
+                }
+            }
+
+            // Apply hyperlink
+            if (segment.isLink && segment.linkUrl) {
+                try {
+                    textNode.setRangeHyperlink(segmentStart, segmentEnd, {
+                        type: 'URL',
+                        value: segment.linkUrl,
+                    });
+
+                    // Set link color for this range
+                    textNode.setRangeFills(segmentStart, segmentEnd, [
+                        { type: 'SOLID', color: { r: 0.0, g: 0.4, b: 0.8 } },
+                    ]);
+                } catch (error) {
+                    console.warn('Failed to apply hyperlink formatting:', error);
+                }
+            }
+
+            currentPosition += segment.text.length;
+        }
     }
 
     /**

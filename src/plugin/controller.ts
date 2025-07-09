@@ -87,6 +87,10 @@ figma.ui.onmessage = async msg => {
                 await handleCreateTables(msg.data);
                 break;
 
+            case 'create-tables-from-markdown':
+                await handleCreateTablesFromMarkdown(msg.data);
+                break;
+
             case 'preview-table':
                 await handlePreviewTable(msg.data);
                 break;
@@ -229,6 +233,41 @@ async function handleCreateTables(request: CreateTablesRequest): Promise<void> {
             // Notify success
             const tableCount = response.tableNodes?.length || 0;
             figma.notify(`${tableCount} tables created in container`, { timeout: 2000 });
+        } else {
+            // Notify error
+            const errorMsg = response.errors?.[0] || 'Unknown error occurred';
+            figma.notify(`Error: ${errorMsg}`, { error: true });
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        figma.ui.postMessage({
+            type: 'error',
+            error: errorMessage,
+        });
+        figma.notify(`Error: ${errorMessage}`, { error: true });
+    }
+}
+
+/**
+ * Create multiple tables from markdown process
+ */
+async function handleCreateTablesFromMarkdown(request: CreateTableRequest): Promise<void> {
+    try {
+        const response = await tableController.createTablesFromMarkdown(request);
+
+        figma.ui.postMessage({
+            type: 'create-tables-from-markdown-response',
+            data: response,
+        });
+
+        if (response.success) {
+            // Notify success
+            const tableCount = response.tableNodes?.length || 0;
+            if (tableCount > 1) {
+                figma.notify(`${tableCount} tables created from markdown`, { timeout: 2000 });
+            } else {
+                figma.notify('Table created from markdown', { timeout: 2000 });
+            }
         } else {
             // Notify error
             const errorMsg = response.errors?.[0] || 'Unknown error occurred';

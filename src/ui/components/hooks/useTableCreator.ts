@@ -5,7 +5,11 @@ import type { TableCreatorProps, UploadedFile } from '../types/TableCreator.type
 import { detectFormatFromText } from '../utils/FormatDetector';
 import { useToastHelpers } from './useToastHelpers';
 
-export const useTableCreator = ({ onCreateTable, onCreateTables }: TableCreatorProps) => {
+export const useTableCreator = ({
+    onCreateTable,
+    onCreateTables,
+    onCreateTablesFromMarkdown,
+}: TableCreatorProps) => {
     const [text, setText] = useState('');
     const [format, setFormat] = useState<SupportedFormat>('csv');
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -73,102 +77,155 @@ export const useTableCreator = ({ onCreateTable, onCreateTables }: TableCreatorP
         };
     }, [autoDetectionTimeout]);
 
-    const handleCreate = useCallback(async () => {
-        // Check active tab to determine which data source to use
-        if (activeTab === 'upload' && uploadedFiles.length > 0) {
-            // Handle file upload tab - create tables from uploaded files
-            if (uploadedFiles.length > 1) {
-                // Use the new createTables method for multiple files
+    const createTable = useCallback(
+        async (createMultipleTables = false) => {
+            // Check active tab to determine which data source to use
+            if (activeTab === 'upload' && uploadedFiles.length > 0) {
+                // Handle file upload tab - create tables from uploaded files
+                if (uploadedFiles.length > 1) {
+                    // Use the new createTables method for multiple files
+                    try {
+                        const request: CreateTablesRequest = {
+                            tables: uploadedFiles.map(file => ({
+                                text: file.content,
+                                format: file.format,
+                                filename: file.filename,
+                            })),
+                        };
+
+                        const response = await onCreateTables(request);
+
+                        if (response.success) {
+                            showSuccess(
+                                'Tables Created',
+                                `${response.tableNodes?.length || 0} tables created successfully in a container`,
+                                4000,
+                            );
+                            // Note: Don't clear uploaded files here to allow re-use
+                        } else {
+                            showErrors(response.errors || ['Failed to create tables']);
+                        }
+                    } catch (error) {
+                        const errorMessage =
+                            error instanceof Error ? error.message : 'Creation error';
+                        showError(errorMessage);
+                    }
+                } else {
+                    // Single file upload - use existing method but with filename
+                    const uploadedFile = uploadedFiles[0];
+                    try {
+                        const request: CreateTableRequest = {
+                            text: uploadedFile.content,
+                            format: uploadedFile.format,
+                            filename: uploadedFile.filename,
+                        };
+
+                        const response = await onCreateTable(request);
+
+                        if (response.success) {
+                            showSuccess(
+                                'Table Created',
+                                `Table "${uploadedFile.filename}" created successfully`,
+                            );
+                            // Note: Don't clear uploaded files here to allow re-use
+                        } else {
+                            showErrors(response.errors || ['Failed to create table']);
+                        }
+                    } catch (error) {
+                        const errorMessage =
+                            error instanceof Error ? error.message : 'Creation error';
+                        showError(errorMessage);
+                    }
+                }
+            } else if (activeTab === 'manual') {
+                // Handle manual input tab - use text input and format
+                if (!text.trim()) {
+                    showError('Please enter text');
+                    return;
+                }
+
                 try {
-                    const request: CreateTablesRequest = {
-                        tables: uploadedFiles.map(file => ({
-                            text: file.content,
-                            format: file.format,
-                            filename: file.filename,
-                        })),
+                    const request: CreateTableRequest = {
+                        text,
+                        format,
                     };
 
-                    const response = await onCreateTables(request);
+                    // Check if this is markdown and multiple tables are requested
+                    if (
+                        format === 'markdown' &&
+                        createMultipleTables &&
+                        onCreateTablesFromMarkdown
+                    ) {
+                        const response = await onCreateTablesFromMarkdown(request);
 
-                    if (response.success) {
-                        showSuccess(
-                            'Tables Created',
-                            `${response.tableNodes?.length || 0} tables created successfully in a container`,
-                            4000,
-                        );
-                        // Note: Don't clear uploaded files here to allow re-use
+                        if (response.success) {
+                            const tableCount = response.tableNodes?.length || 0;
+                            if (tableCount > 1) {
+                                showSuccess(
+                                    'Tables Created',
+                                    `${tableCount} tables created from markdown`,
+                                );
+                            } else {
+                                showSuccess('Table Created', 'Table created from markdown');
+                            }
+                        } else {
+                            showErrors(
+                                response.errors || ['Failed to create tables from markdown'],
+                            );
+                        }
                     } else {
-                        showErrors(response.errors || ['Failed to create tables']);
+                        // Regular single table creation
+                        const response = await onCreateTable(request);
+
+                        if (response.success) {
+                            showSuccess('Table Created', 'Table created successfully');
+                        } else {
+                            showErrors(response.errors || ['Failed to create table']);
+                        }
                     }
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : 'Creation error';
                     showError(errorMessage);
                 }
             } else {
-                // Single file upload - use existing method but with filename
-                const uploadedFile = uploadedFiles[0];
-                try {
-                    const request: CreateTableRequest = {
-                        text: uploadedFile.content,
-                        format: uploadedFile.format,
-                        filename: uploadedFile.filename,
-                    };
-
-                    const response = await onCreateTable(request);
-
-                    if (response.success) {
-                        showSuccess(
-                            'Table Created',
-                            `Table "${uploadedFile.filename}" created successfully`,
-                        );
-                        // Note: Don't clear uploaded files here to allow re-use
-                    } else {
-                        showErrors(response.errors || ['Failed to create table']);
-                    }
-                } catch (error) {
-                    const errorMessage = error instanceof Error ? error.message : 'Creation error';
-                    showError(errorMessage);
-                }
+                // No valid input
+                showError('Please upload files or enter text');
             }
-        } else if (activeTab === 'manual') {
-            // Handle manual input tab - use text input and format
-            if (!text.trim()) {
-                showError('Please enter text');
-                return;
-            }
+        },
+        [
+            activeTab,
+            text,
+            format,
+            onCreateTable,
+            onCreateTables,
+            onCreateTablesFromMarkdown,
+            uploadedFiles,
+            showError,
+            showErrors,
+            showSuccess,
+        ],
+    );
 
-            try {
-                const request: CreateTableRequest = {
-                    text,
-                    format,
-                };
+    // Create wrapper functions for button click handlers
+    const handleCreate = useCallback(
+        (event: React.MouseEvent<HTMLButtonElement>) => {
+            event.preventDefault();
+            return createTable(false);
+        },
+        [createTable],
+    );
 
-                const response = await onCreateTable(request);
+    const handleCreateMultiple = useCallback(
+        (event: React.MouseEvent<HTMLButtonElement>) => {
+            event.preventDefault();
+            return createTable(true);
+        },
+        [createTable],
+    );
 
-                if (response.success) {
-                    showSuccess('Table Created', 'Table created successfully');
-                } else {
-                    showErrors(response.errors || ['Failed to create table']);
-                }
-            } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : 'Creation error';
-                showError(errorMessage);
-            }
-        } else {
-            // No valid input
-            showError('Please upload files or enter text');
-        }
-    }, [
-        activeTab,
-        text,
-        format,
-        onCreateTable,
-        onCreateTables,
-        uploadedFiles,
-        showError,
-        showErrors,
-        showSuccess,
-    ]);
+    const handleCreateFromUpload = useCallback(() => {
+        return createTable(false);
+    }, [createTable]);
 
     const handleFilesUploaded = useCallback(
         (files: UploadedFile[]) => {
@@ -281,6 +338,8 @@ export const useTableCreator = ({ onCreateTable, onCreateTables }: TableCreatorP
         setFormat,
         setActiveTab: handleSetActiveTab,
         handleCreate,
+        handleCreateMultiple,
+        handleCreateFromUpload,
         handleFilesUploaded,
         handleFileUploaded,
         handleFilesRemoved,
